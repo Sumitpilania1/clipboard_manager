@@ -3,9 +3,10 @@ import hashlib
 import getpass
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
     QListWidget, QListWidgetItem, QPushButton, QInputDialog, QMessageBox, QMenu, 
-    QDialog, QScrollArea, QShortcut, QApplication, QLineEdit, QCheckBox)
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QByteArray, QTimer, QEvent, QBuffer
-from PyQt5.QtGui import QKeySequence, QImage, QPixmap, QIcon
+    QDialog, QScrollArea, QShortcut, QApplication, QLineEdit, QCheckBox, QTextEdit, 
+    QDialogButtonBox)
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QByteArray, QTimer, QEvent, QBuffer, QSettings
+from PyQt5.QtGui import QKeySequence, QImage, QPixmap, QIcon, QFontMetrics
 import sqlite3
 import pyperclip
 from datetime import datetime, timezone
@@ -16,20 +17,31 @@ import logging
 import threading
 import time
 import os
-from PyQt5.QtCore import QSettings
 
 logging.basicConfig(level=logging.DEBUG)
 
 def adapt_datetime(dt):
     """Convert datetime to UTC ISO format string."""
-    return dt.astimezone(timezone.utc).isoformat()
+    if dt is None:
+        return None
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f%z")
 
 def convert_datetime(val):
-    """Convert ISO format string to datetime object."""
-    try:
-        return datetime.fromisoformat(val)
-    except ValueError:
+    """Convert string to datetime object."""
+    if val is None:
         return None
+    try:
+        if isinstance(val, bytes):
+            val = val.decode('utf-8')
+        if isinstance(val, str):
+            return datetime.strptime(val, "%Y-%m-%d %H:%M:%S.%f%z")
+        return val
+    except (ValueError, TypeError):
+        return None
+
+# Register the adapters and converters
+sqlite3.register_adapter(datetime, adapt_datetime)
+sqlite3.register_converter("timestamp", convert_datetime)
 
 def hash_password(password):
     """Hash password using SHA-256."""
@@ -121,9 +133,13 @@ class PreviewDialog(QDialog):
         # Add timestamp if available
         if timestamp:
             try:
-                # Convert UTC timestamp to local time
-                utc_dt = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
-                utc_dt = utc_dt.replace(tzinfo=timezone.utc)
+                # Handle both string and datetime timestamp formats
+                if isinstance(timestamp, str):
+                    utc_dt = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
+                    utc_dt = utc_dt.replace(tzinfo=timezone.utc)
+                else:
+                    utc_dt = timestamp.replace(tzinfo=timezone.utc)
+                
                 local_dt = utc_dt.astimezone()
                 timestamp_str = local_dt.strftime("%Y-%m-%d %I:%M:%S %p %Z")
                 
@@ -516,10 +532,10 @@ class ClipboardManagerV2(QMainWindow):
         if not self.showLogin():
             sys.exit()
             
-        self.initUI()
+        self.setupUI()
         self.loadAvailableSessions()
         self.startClipboardMonitor()
-        
+
         # Create hover preview window
         self.hover_preview = HoverPreviewWindow()
         self.hover_timer = QTimer()
@@ -572,7 +588,7 @@ class ClipboardManagerV2(QMainWindow):
         except sqlite3.IntegrityError:
             return False
 
-    def initUI(self):
+    def setupUI(self):
         # Create central widget and main layout
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -583,7 +599,7 @@ class ClipboardManagerV2(QMainWindow):
         # Create status bar
         self.statusBar()
         
-        # Top section with session management
+        # Session management section
         top_section = QWidget()
         top_layout = QHBoxLayout()
         top_section.setLayout(top_layout)
@@ -592,59 +608,59 @@ class ClipboardManagerV2(QMainWindow):
         session_widget = QWidget()
         session_layout = QVBoxLayout()
         session_widget.setLayout(session_layout)
-        
-        # Session list label
+        session_layout.setContentsMargins(10, 5, 10, 5)
+        session_layout.setSpacing(8)
+
+        # Session header
         session_label = QLabel("Sessions")
         session_label.setStyleSheet("""
             QLabel {
+                color: #2c3e50;
                 font-size: 14px;
                 font-weight: bold;
-                color: #2c3e50;
-                padding: 5px;
+                padding: 5px 0;
             }
         """)
         session_layout.addWidget(session_label)
         
-        # Session list
+        # Session list widget
         self.session_list = QListWidget()
-        self.session_list.setMinimumWidth(200)
-        self.session_list.itemClicked.connect(self.loadSession)
+        self.session_list.setMinimumWidth(200)  # Set minimum width
+        self.session_list.setMaximumWidth(300)  # Set maximum width
+        self.session_list.itemClicked.connect(self.onSessionSelected)  # Add click handler
         self.session_list.setStyleSheet("""
             QListWidget {
                 border: 1px solid #bdc3c7;
-                border-radius: 4px;
-                padding: 5px;
+                border-radius: 5px;
                 background-color: white;
+                padding: 5px;
             }
             QListWidget::item {
-                padding: 8px;
-                border-radius: 4px;
-                margin: 2px;
-            }
-            QListWidget::item:selected {
-                background-color: #3498db;
-                color: white;
+                padding: 5px;
+                border-bottom: 1px solid #ecf0f1;
             }
             QListWidget::item:hover {
-                background-color: #edf2f7;
+                background-color: #ecf0f1;
             }
-            QListWidget::item[selected="true"] {
+            QListWidget::item:selected {
                 background-color: #3498db;
                 color: white;
             }
         """)
         session_layout.addWidget(self.session_list)
         
-        # Add session widget to top layout
+        # Add session widget to left side
         top_layout.addWidget(session_widget, stretch=2)
 
         # Right side - Session management buttons
         buttons_widget = QWidget()
-        buttons_layout = QVBoxLayout(buttons_widget)
-        buttons_layout.setSpacing(10)
+        buttons_layout = QVBoxLayout()
+        buttons_widget.setLayout(buttons_layout)
+        buttons_layout.setSpacing(8)
+        buttons_layout.setContentsMargins(5, 5, 5, 5)
         buttons_layout.setAlignment(Qt.AlignTop)
-        
-        # Button styles
+
+        # Button style
         button_style = """
             QPushButton {
                 background-color: #3498db;
@@ -652,39 +668,42 @@ class ClipboardManagerV2(QMainWindow):
                 border: none;
                 padding: 8px 15px;
                 border-radius: 4px;
-                font-weight: bold;
+                font-weight: 500;
+                font-size: 12px;
                 min-width: 120px;
             }
             QPushButton:hover {
                 background-color: #2980b9;
             }
             QPushButton:pressed {
-                background-color: #2472a4;
+                background-color: #2473a6;
             }
         """
-        
+
         # Create styled buttons
-        self.new_session_button = QPushButton('New Session')
-        self.new_session_button.setStyleSheet(button_style)
-        self.new_session_button.clicked.connect(self.createNewSession)
-        buttons_layout.addWidget(self.new_session_button)
+        self.new_session_btn = QPushButton('New Session')
+        self.new_session_btn.setStyleSheet(button_style)
+        self.new_session_btn.clicked.connect(self.createNewSession)
+        buttons_layout.addWidget(self.new_session_btn)
         
-        self.rename_button = QPushButton('Rename Session')
-        self.rename_button.setStyleSheet(button_style)
-        self.rename_button.clicked.connect(self.renameSession)
-        buttons_layout.addWidget(self.rename_button)
+        self.rename_session_btn = QPushButton('Rename Session')
+        self.rename_session_btn.setStyleSheet(button_style)
+        self.rename_session_btn.clicked.connect(self.renameSession)
+        buttons_layout.addWidget(self.rename_session_btn)
         
-        self.delete_session_button = QPushButton('Delete Session')
-        self.delete_session_button.setStyleSheet(button_style.replace('3498db', 'e74c3c').replace('2980b9', 'c0392b').replace('2472a4', 'a93226'))
-        self.delete_session_button.clicked.connect(self.deleteSession)
-        buttons_layout.addWidget(self.delete_session_button)
+        self.set_default_btn = QPushButton('Set as Default')
+        self.set_default_btn.setStyleSheet(button_style)
+        self.set_default_btn.clicked.connect(self.setDefaultSession)
+        buttons_layout.addWidget(self.set_default_btn)
         
-        self.set_default_button = QPushButton('Set as Default')
-        self.set_default_button.setStyleSheet(button_style)
-        self.set_default_button.clicked.connect(self.setDefaultSession)
-        buttons_layout.addWidget(self.set_default_button)
-        
-        # Add buttons widget to right side of top section
+        self.delete_session_btn = QPushButton('Delete Session')
+        self.delete_session_btn.setStyleSheet(button_style.replace('#3498db', '#e74c3c')
+                                                    .replace('#2980b9', '#c0392b')
+                                                    .replace('#2473a6', '#a93226'))
+        self.delete_session_btn.clicked.connect(self.deleteSession)
+        buttons_layout.addWidget(self.delete_session_btn)
+
+        # Add buttons widget to right side
         top_layout.addWidget(buttons_widget, stretch=1)
         
         # Add top section to main layout
@@ -744,12 +763,16 @@ class ClipboardManagerV2(QMainWindow):
         history_buttons = QHBoxLayout()
         
         self.delete_entry_button = QPushButton('Delete Entry')
-        self.delete_entry_button.setStyleSheet(button_style.replace('3498db', 'e74c3c').replace('2980b9', 'c0392b').replace('2472a4', 'a93226'))
+        self.delete_entry_button.setStyleSheet(button_style.replace("#3498db", "#e74c3c")
+                                                    .replace("#2980b9", "#c0392b")
+                                                    .replace("#2473a6", "#a93226"))
         self.delete_entry_button.clicked.connect(self.deleteClipboardEntry)
         history_buttons.addWidget(self.delete_entry_button)
         
         self.clear_history_button = QPushButton('Clear History')
-        self.clear_history_button.setStyleSheet(button_style.replace('3498db', 'e74c3c').replace('2980b9', 'c0392b').replace('2472a4', 'a93226'))
+        self.clear_history_button.setStyleSheet(button_style.replace("#3498db", "#e74c3c")
+                                                    .replace("#2980b9", "#c0392b")
+                                                    .replace("#2473a6", "#a93226"))
         self.clear_history_button.clicked.connect(self.clearClipboardHistory)
         history_buttons.addWidget(self.clear_history_button)
         
@@ -762,77 +785,16 @@ class ClipboardManagerV2(QMainWindow):
         # Enable context menu
         self.history_display.setContextMenuPolicy(Qt.CustomContextMenu)
         self.history_display.customContextMenuRequested.connect(self.showContextMenu)
-        
-    def historyKeyPressEvent(self, event):
-        if event.key() == Qt.Key_Return or event.key() == Qt.Key_Enter:
-            self.previewSelectedItem()
-        else:
-            # Call the parent class's keyPressEvent for other keys
-            QListWidget.keyPressEvent(self.history_display, event)
 
-    def initDatabase(self):
-        try:
-            cursor = self.db_connection.cursor()
-            
-            # Check if we need to migrate by looking for the users table
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
-            needs_migration = cursor.fetchone() is None
-            
-            if needs_migration:
-                logging.info("Migrating database to new schema...")
-                
-                # Drop existing tables if they exist
-                cursor.execute("DROP TABLE IF EXISTS clipboard_entries")
-                cursor.execute("DROP TABLE IF EXISTS sessions")
-                
-                # Create users table
-                cursor.execute('''
-                    CREATE TABLE users (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        username TEXT UNIQUE NOT NULL,
-                        password_hash TEXT NOT NULL,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                ''')
-                
-                # Create sessions table with user_id and default flag
-                cursor.execute('''
-                    CREATE TABLE sessions (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        user_id INTEGER NOT NULL,
-                        name TEXT NOT NULL,
-                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                        is_deleted BOOLEAN DEFAULT 0,
-                        is_default BOOLEAN DEFAULT 0,
-                        FOREIGN KEY (user_id) REFERENCES users (id),
-                        UNIQUE(user_id, name)
-                    )
-                ''')
-                
-                # Create clipboard entries table
-                cursor.execute('''
-                    CREATE TABLE clipboard_entries (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        session_id INTEGER NOT NULL,
-                        content TEXT NOT NULL,
-                        content_type TEXT NOT NULL,
-                        width INTEGER,
-                        height INTEGER,
-                        timestamp TIMESTAMP NOT NULL,
-                        is_deleted BOOLEAN DEFAULT 0,
-                        FOREIGN KEY (session_id) REFERENCES sessions (id)
-                    )
-                ''')
-                
-                self.db_connection.commit()
-                logging.info("Database migration completed successfully")
-            
-            logging.debug("Database initialized successfully")
-            
-        except sqlite3.Error as e:
-            logging.error(f"Database initialization error: {e}")
-            QMessageBox.critical(self, "Database Error", 
-                               "Failed to initialize database. The application may not work correctly.")
+    def onSessionSelected(self, item):
+        if item is None:
+            return
+        
+        session_id = item.data(Qt.UserRole)
+        if session_id != self.current_session_id:
+            self.current_session_id = session_id
+            self.loadSession()
+            logging.debug(f"Session selected: {session_id}")
 
     def createNewSession(self):
         new_name, ok = QInputDialog.getText(self, 'New Session', 'Enter session name:')
@@ -939,50 +901,25 @@ class ClipboardManagerV2(QMainWindow):
             self.session_list.clear()
             
             for session_id, name, is_default in sessions:
-                item = QListWidgetItem()
-                # Create a custom widget for the session item
-                session_widget = QWidget()
-                layout = QHBoxLayout()
-                layout.setContentsMargins(5, 2, 5, 2)
-                
-                # Session name label
-                name_label = QLabel(name)
-                name_label.setStyleSheet("color: #2c3e50; font-size: 12px;")
-                layout.addWidget(name_label)
-                
-                # Default session star
-                if is_default:
-                    star_label = QLabel("★")
-                    star_label.setStyleSheet("color: #f1c40f; font-size: 14px;")  # Golden color
-                    layout.addWidget(star_label)
-                
-                # Add stretch to push everything to the left
-                layout.addStretch()
-                
-                session_widget.setLayout(layout)
-                item.setSizeHint(session_widget.sizeHint())
-                
-                self.session_list.addItem(item)
-                self.session_list.setItemWidget(item, session_widget)
+                item = QListWidgetItem(f"{'★ ' if is_default else ''}{name}")
                 item.setData(Qt.UserRole, session_id)
-                
-                # If this is the current session, select it
-                if session_id == self.current_session_id:
-                    self.session_list.setCurrentItem(item)
+                self.session_list.addItem(item)
             
-            # Load default session or first available
-            if not self.current_session_id:
-                default_session = next((s for s in sessions if s[2]), sessions[0] if sessions else None)
+            # Select default session or first available
+            if sessions:
+                default_session = next((s for s in sessions if s[2]), sessions[0])
                 if default_session:
                     self.current_session_id = default_session[0]
-                    # Find and select the default session item
                     for i in range(self.session_list.count()):
                         item = self.session_list.item(i)
                         if item.data(Qt.UserRole) == self.current_session_id:
                             self.session_list.setCurrentItem(item)
                             break
                     self.loadSession()
-                
+                    logging.debug(f"Default session {self.current_session_id} loaded.")
+                else:
+                    logging.debug("No default session found.")
+            
         except sqlite3.Error as e:
             logging.error(f"Error loading sessions: {e}")
 
@@ -991,22 +928,17 @@ class ClipboardManagerV2(QMainWindow):
         if current_item is None:
             logging.debug("No session selected.")
             return
-            
         session_id = current_item.data(Qt.UserRole)
-        if session_id == self.current_session_id:
-            return  # Already on this session
-            
         logging.debug(f"Loading session: {session_id}")
         self.current_session_id = session_id
         
         # Update window title with session name
-        session_widget = self.session_list.itemWidget(current_item)
-        session_name = session_widget.layout().itemAt(0).widget().text()
+        session_name = current_item.text().replace('★ ', '')
         self.setWindowTitle(f'Clipboard Manager V2 - {self.current_username} - {session_name}')
         
         # Load clipboard history for this session
         self.loadClipboardHistory()
-        logging.debug(f"Loaded session {session_id}")
+        logging.debug(f"Loaded session {session_id}.")
         
         # Update status bar
         self.statusBar().showMessage(f'Switched to session: {session_name}', 2000)
@@ -1036,35 +968,27 @@ class ClipboardManagerV2(QMainWindow):
                 self.saveClipboardContent(text, 'text')
 
     def saveClipboardContent(self, content, content_type='text', width=None, height=None):
-        try:
-            if not content:
-                return
-                
-            # For text content, limit size but preserve content
-            if content_type == 'text' and len(content) > 1000000:  # 1MB limit for text
-                logging.warning(f"Large text content detected: {len(content)} bytes")
-                content = content[:1000000] + "\n... (content truncated due to size)"
+        if self.current_session_id is None:
+            logging.warning("No session selected, cannot save clipboard content")
+            return
             
-            if self.current_session_id is None:
-                logging.warning("No session selected, cannot save clipboard content")
-                return
-
+        try:
             with self.db_lock:
                 cursor = self.db_connection.cursor()
-                timestamp = datetime.now(timezone.utc)
+                now = datetime.now(timezone.utc)
                 
                 cursor.execute('''
                     INSERT INTO clipboard_entries 
-                    (session_id, content, content_type, width, height, timestamp)
+                    (session_id, content, content_type, width, height, timestamp) 
                     VALUES (?, ?, ?, ?, ?, ?)
-                ''', (self.current_session_id, content, content_type, width, height, timestamp))
+                ''', (self.current_session_id, content, content_type, width, height, now))
                 
                 self.db_connection.commit()
-                logging.debug(f"Clipboard entry saved for session {self.current_session_id} at {timestamp}")
-            
-            # Update UI in the main thread
-            self.loadClipboardHistory()
-            
+                logging.debug(f"Clipboard entry saved for session {self.current_session_id} at {now}")
+                
+                # Reload clipboard history to show new entry
+                self.loadClipboardHistory()
+                
         except sqlite3.Error as e:
             logging.error(f"Database error while saving clipboard content: {e}")
         except Exception as e:
@@ -1075,35 +999,21 @@ class ClipboardManagerV2(QMainWindow):
             if self.current_session_id is None:
                 return
                 
-            with self.db_lock:
-                cursor = self.db_connection.cursor()
-                cursor.execute('''
-                    SELECT id, content, content_type, width, height, timestamp 
-                    FROM clipboard_entries 
-                    WHERE session_id = ? AND is_deleted = 0 
-                    ORDER BY timestamp DESC
-                ''', (self.current_session_id,))
-                
-                entries = cursor.fetchall()
+            cursor = self.db_connection.cursor()
+            cursor.execute('''
+                SELECT content, content_type, width, height, timestamp 
+                FROM clipboard_entries 
+                WHERE session_id = ? AND is_deleted = 0 
+                ORDER BY timestamp DESC
+            ''', (self.current_session_id,))
             
-            self.history_display.clear()
-            for entry_id, content, content_type, width, height, timestamp in entries:
-                if isinstance(timestamp, str):
-                    timestamp = datetime.fromisoformat(timestamp)
-                    
-                display_time = timestamp.astimezone().strftime("%Y-%m-%d %H:%M:%S")
-                if content_type == 'text':
-                    display_text = f"{display_time} - {content[:100]}{'...' if len(content) > 100 else ''}"
-                else:
-                    display_text = f"{display_time} - [Image: {width}x{height}]"
-                
-                item = QListWidgetItem(display_text)
-                item.setData(Qt.UserRole, (entry_id, content, content_type))
-                self.history_display.addItem(item)
-                
+            entries = cursor.fetchall()
+            self.clipboard_history = entries
+            self.updateHistoryDisplay()
+            
         except sqlite3.Error as e:
-            logging.error(f"Database error while loading clipboard history: {e}")
-            QMessageBox.warning(self, "Error", "Failed to load clipboard history")
+            logging.error(f"Error loading clipboard history: {e}")
+            self.statusBar().showMessage("Error loading clipboard history", 2000)
 
     def updateHistoryDisplay(self):
         self.history_display.clear()
@@ -1122,85 +1032,18 @@ class ClipboardManagerV2(QMainWindow):
             item.setToolTip(f"Type: {content_type}\nCopied on: {timestamp}")
             self.history_display.addItem(item)
 
-        # Enable context menu
-        self.history_display.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.history_display.customContextMenuRequested.connect(self.showContextMenu)
-
     def previewSelectedItem(self):
         current_item = self.history_display.currentItem()
         if current_item is None:
             return
         
         row = self.history_display.row(current_item)
-        if 0 <= row < len(self.clipboard_history):
-            content, content_type, width, height, timestamp = self.clipboard_history[row]
-            dialog = PreviewDialog(content, content_type, timestamp, self)
-            dialog.exec_()
-
-    def showContextMenu(self, position):
-        item = self.history_display.itemAt(position)
-        if not item:
+        if row < 0 or row >= len(self.clipboard_history):
             return
         
-        menu = QMenu(self)
-        preview_action = menu.addAction("Preview")
-        copy_action = menu.addAction("Copy to Clipboard")
-        delete_action = menu.addAction("Delete")
-        
-        # Get the selected action
-        action = menu.exec_(self.history_display.mapToGlobal(position))
-        
-        if action == preview_action:
-            self.previewSelectedItem()
-        elif action == copy_action:
-            self.copySelectedItemToClipboard()
-        elif action == delete_action:
-            self.deleteClipboardEntry()
-        
-        # No need to explicitly close the menu - Qt handles this automatically
-
-    def copySelectedItemToClipboard(self):
-        current_item = self.history_display.currentItem()
-        if current_item is None:
-            return
-        
-        row = self.history_display.row(current_item)
-        if 0 <= row < len(self.clipboard_history):
-            content, content_type, _, _, _ = self.clipboard_history[row]
-            clipboard = QApplication.clipboard()
-            if content_type == 'image':
-                image_data = QByteArray.fromBase64(content.encode())
-                image = QImage.fromData(image_data)
-                clipboard.setImage(image)
-            else:
-                clipboard.setText(content)
-
-    def eventFilter(self, source, event):
-        if source is self.history_display.viewport():
-            if event.type() == QEvent.MouseMove:
-                item = self.history_display.itemAt(event.pos())
-                if item and item != getattr(self, 'last_hover_item', None):
-                    # Hide previous preview if exists
-                    self.hover_preview.hide()
-                    self.hover_timer.stop()
-                    
-                    # Start timer for new item
-                    self.hover_timer.start(2000)  # 2 seconds delay
-                    # Store current item and position for later use
-                    self.hover_item = item
-                    self.last_hover_item = item
-                    self.hover_pos = self.history_display.viewport().mapToGlobal(event.pos())
-                elif not item:
-                    # Hide preview and stop timer when mouse leaves item
-                    self.hover_preview.hide()
-                    self.hover_timer.stop()
-                    self.last_hover_item = None
-            elif event.type() == QEvent.Leave:
-                # Hide preview and stop timer when mouse leaves widget
-                self.hover_preview.hide()
-                self.hover_timer.stop()
-                self.last_hover_item = None
-        return super().eventFilter(source, event)
+        content, content_type, width, height, timestamp = self.clipboard_history[row]
+        dialog = PreviewDialog(content, content_type, timestamp, self)
+        dialog.exec_()
 
     def showHoverPreview(self):
         try:
@@ -1210,7 +1053,7 @@ class ClipboardManagerV2(QMainWindow):
             row = self.history_display.row(self.hover_item)
             if row < 0 or row >= len(self.clipboard_history):
                 return
-                
+            
             content, content_type, _, _, _ = self.clipboard_history[row]
             if content and content_type:
                 self.hover_preview.showPreview(content, content_type, self.hover_pos)
@@ -1230,7 +1073,7 @@ class ClipboardManagerV2(QMainWindow):
             row = self.history_display.row(current_item)
             if row < 0 or row >= len(self.clipboard_history):
                 return
-                
+            
             content, content_type, _, _, _ = self.clipboard_history[row]
             clipboard = QApplication.clipboard()
             
@@ -1306,6 +1149,101 @@ class ClipboardManagerV2(QMainWindow):
             self.copySelectedToClipboard()
         else:
             super().keyPressEvent(event)
+
+    def historyKeyPressEvent(self, event):
+        """Handle keyboard events for the history display"""
+        if event.key() == Qt.Key_Return or event.key() == Qt.Key_Enter:
+            self.previewSelectedItem()
+        elif event.key() == Qt.Key_C and event.modifiers() & Qt.ControlModifier:
+            self.copySelectedToClipboard()
+        else:
+            # Call the parent class's keyPressEvent for other keys
+            QListWidget.keyPressEvent(self.history_display, event)
+
+    def initDatabase(self):
+        try:
+            cursor = self.db_connection.cursor()
+            
+            # Check if we need to migrate by looking for the users table
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+            needs_migration = cursor.fetchone() is None
+            
+            if needs_migration:
+                logging.info("Migrating database to new schema...")
+                
+                # Drop existing tables if they exist
+                cursor.execute("DROP TABLE IF EXISTS clipboard_entries")
+                cursor.execute("DROP TABLE IF EXISTS sessions")
+                
+                # Create users table
+                cursor.execute('''
+                    CREATE TABLE users (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        username TEXT UNIQUE NOT NULL,
+                        password_hash TEXT NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                
+                # Create sessions table with user_id and default flag
+                cursor.execute('''
+                    CREATE TABLE sessions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
+                        name TEXT NOT NULL,
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        is_deleted BOOLEAN DEFAULT 0,
+                        is_default BOOLEAN DEFAULT 0,
+                        FOREIGN KEY (user_id) REFERENCES users (id),
+                        UNIQUE(user_id, name)
+                    )
+                ''')
+                
+                # Create clipboard entries table
+                cursor.execute('''
+                    CREATE TABLE clipboard_entries (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        session_id INTEGER NOT NULL,
+                        content TEXT NOT NULL,
+                        content_type TEXT NOT NULL,
+                        width INTEGER,
+                        height INTEGER,
+                        timestamp TIMESTAMP NOT NULL,
+                        is_deleted BOOLEAN DEFAULT 0,
+                        FOREIGN KEY (session_id) REFERENCES sessions (id)
+                    )
+                ''')
+                
+                self.db_connection.commit()
+                logging.info("Database migration completed successfully")
+            
+            logging.debug("Database initialized successfully")
+            
+        except sqlite3.Error as e:
+            logging.error(f"Database initialization error: {e}")
+            QMessageBox.critical(self, "Database Error", 
+                               "Failed to initialize database. The application may not work correctly.")
+
+    def showContextMenu(self, position):
+        """Show context menu for history items"""
+        item = self.history_display.itemAt(position)
+        if not item:
+            return
+        
+        menu = QMenu(self)
+        preview_action = menu.addAction("Preview")
+        copy_action = menu.addAction("Copy to Clipboard")
+        delete_action = menu.addAction("Delete")
+        
+        # Get the selected action
+        action = menu.exec_(self.history_display.mapToGlobal(position))
+        
+        if action == preview_action:
+            self.previewSelectedItem()
+        elif action == copy_action:
+            self.copySelectedToClipboard()
+        elif action == delete_action:
+            self.deleteClipboardEntry()
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
