@@ -1244,9 +1244,22 @@ class ClipboardManagerV2(QMainWindow):
         if not item:
             return
         
+        # Get the clipboard content type
+        row = self.history_display.row(item)
+        if row < 0 or row >= len(self.clipboard_history):
+            return
+            
+        content, content_type, _, _, _ = self.clipboard_history[row]
+        
         menu = QMenu(self)
         preview_action = menu.addAction("Preview")
         copy_action = menu.addAction("Copy to Clipboard")
+        
+        # Only add modify option for text entries
+        modify_action = None
+        if content_type == 'text':
+            modify_action = menu.addAction("Modify")
+            
         delete_action = menu.addAction("Delete")
         
         # Get the selected action
@@ -1256,8 +1269,51 @@ class ClipboardManagerV2(QMainWindow):
             self.previewSelectedItem()
         elif action == copy_action:
             self.copySelectedToClipboard()
+        elif action == modify_action:
+            self.modifyClipboardEntry()
         elif action == delete_action:
             self.deleteClipboardEntry()
+
+    def modifyClipboardEntry(self):
+        """Modify the selected clipboard entry."""
+        current_item = self.history_display.currentItem()
+        if not current_item:
+            return
+            
+        row = self.history_display.row(current_item)
+        if row < 0 or row >= len(self.clipboard_history):
+            return
+            
+        content, content_type, _, _, timestamp = self.clipboard_history[row]
+        
+        if content_type != 'text':
+            QMessageBox.information(self, "Modify Entry", "Only text entries can be modified.")
+            return
+            
+        # Show dialog to edit content
+        new_content, ok = QInputDialog.getMultiLineText(
+            self,
+            'Modify Clipboard Entry',
+            'Edit content:',
+            content
+        )
+        
+        if ok and new_content != content:
+            cursor = self.db_connection.cursor()
+            now = datetime.now(timezone.utc)
+            
+            # Update the entry in database
+            cursor.execute('''
+                UPDATE clipboard_entries 
+                SET content = ?, timestamp = ? 
+                WHERE content = ? 
+                AND session_id = ? 
+                AND timestamp = ?
+            ''', (new_content, now, content, self.current_session_id, timestamp))
+            
+            self.db_connection.commit()
+            self.loadClipboardHistory()
+            self.statusBar().showMessage("Entry modified successfully", 2000)
 
     def cleanup(self):
         """Cleanup resources before quitting."""
