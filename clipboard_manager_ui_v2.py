@@ -18,34 +18,23 @@ import threading
 import time
 import os
 
-logging.basicConfig(level=logging.DEBUG)
+if __name__ == '__main__':
+    # Set up logging with a cleaner format and filter out IMKClient messages
+    class IMKClientFilter(logging.Filter):
+        def filter(self, record):
+            return "IMKClient" not in record.getMessage()
 
-def adapt_datetime(dt):
-    """Convert datetime to UTC ISO format string."""
-    if dt is None:
-        return None
-    return dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f%z")
-
-def convert_datetime(val):
-    """Convert string to datetime object."""
-    if val is None:
-        return None
-    try:
-        if isinstance(val, bytes):
-            val = val.decode('utf-8')
-        if isinstance(val, str):
-            return datetime.strptime(val, "%Y-%m-%d %H:%M:%S.%f%z")
-        return val
-    except (ValueError, TypeError):
-        return None
-
-# Register the adapters and converters
-sqlite3.register_adapter(datetime, adapt_datetime)
-sqlite3.register_converter("timestamp", convert_datetime)
-
-def hash_password(password):
-    """Hash password using SHA-256."""
-    return hashlib.sha256(password.encode()).hexdigest()
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(message)s',
+        handlers=[
+            logging.StreamHandler()
+        ]
+    )
+    logging.getLogger().addFilter(IMKClientFilter())
+    
+    # Suppress IMKClient messages
+    os.environ['PYQT_MAC_NO_NATIVE_MENUBAR'] = '1'
 
 class HoverPreviewWindow(QDialog):
     def __init__(self, parent=None):
@@ -510,7 +499,7 @@ class ClipboardThread(QThread):
 class ClipboardManagerV2(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Clipboard Manager V2")
+        self.setWindowTitle("Clipboard Manager V2")  # Set initial window title
         
         # Set application icon
         icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'icons', 'clipboard_icon.png')
@@ -832,12 +821,41 @@ class ClipboardManagerV2(QMainWindow):
         if ok and new_name:
             cursor = self.db_connection.cursor()
             try:
-                cursor.execute('INSERT INTO sessions (user_id, name) VALUES (?, ?)', (self.current_user_id, new_name))
+                # Check if session name already exists
+                cursor.execute("""
+                    SELECT id FROM sessions 
+                    WHERE name = ? AND user_id = ? AND is_deleted = 0
+                """, (new_name, self.current_user_id))
+                
+                if cursor.fetchone():
+                    QMessageBox.warning(self, "Warning", "A session with this name already exists.")
+                    return
+
+                # Create new session
+                cursor.execute('''
+                    INSERT INTO sessions (name, is_default, is_deleted, user_id) 
+                    VALUES (?, 0, 0, ?)
+                ''', (new_name, self.current_user_id))
                 self.db_connection.commit()
+                
+                # Get the ID of the newly created session
+                new_session_id = cursor.lastrowid
+                
+                logging.info(f"Created new session: {new_name}")
+                
+                # Refresh session list and select the new session
                 self.loadAvailableSessions()
-                logging.debug(f"New session '{new_name}' created.")
-            except sqlite3.IntegrityError:
-                logging.debug(f"Session '{new_name}' already exists.")
+                
+                # Find and select the new session
+                for i in range(self.session_list.count()):
+                    item = self.session_list.item(i)
+                    if item.data(Qt.UserRole) == new_session_id:
+                        self.session_list.setCurrentItem(item)
+                        break
+                
+            except sqlite3.Error as e:
+                logging.error(f"Failed to create session: {e}")
+                QMessageBox.critical(self, "Error", f"Failed to create session: {e}")
 
     def renameSession(self):
         current_item = self.session_list.currentItem()
@@ -926,9 +944,9 @@ class ClipboardManagerV2(QMainWindow):
                 cursor.execute("""
                     SELECT id, name, is_default 
                     FROM sessions 
-                    WHERE is_deleted = 0 
+                    WHERE is_deleted = 0 AND user_id = ?
                     ORDER BY name
-                """)
+                """, (self.current_user_id,))
                 sessions = cursor.fetchall()
 
             # Clear and populate sessions combo box
@@ -943,11 +961,6 @@ class ClipboardManagerV2(QMainWindow):
 
             # Get the last used session from QSettings
             last_session_id = self.settings.value('last_session_id', type=int)
-            
-            # Try to set the combo box to:
-            # 1. Last used session
-            # 2. Default session
-            # 3. First available session
             
             if last_session_id is not None:
                 # Find the index of the last used session
@@ -988,19 +1001,21 @@ class ClipboardManagerV2(QMainWindow):
         current_item = self.session_list.currentItem()
         if current_item is None:
             self.session_label.setText("No session selected")
-            logging.debug("No session selected.")
+            logging.info("No session selected")
+            self.setWindowTitle("Clipboard Manager V2")
             return
+            
         session_id = current_item.data(Qt.UserRole)
         logging.debug(f"Loading session: {session_id}")
         self.current_session_id = session_id
         
         # Update window title with session name
         session_name = current_item.text().replace('★ ', '')
-        self.setWindowTitle(f'Clipboard Manager V2 - {self.current_username} - {session_name}')
+        self.setWindowTitle(f"Clipboard Manager V2 - {session_name}")  # Updated format
         
         # Load clipboard history for this session
         self.loadClipboardHistory()
-        logging.debug(f"Loaded session {session_id}.")
+        logging.info(f"Loaded session: {session_name}")
         
         # Update status bar
         self.statusBar().showMessage(f'Switched to session: {session_name}', 2000)
@@ -1031,7 +1046,7 @@ class ClipboardManagerV2(QMainWindow):
 
     def saveClipboardContent(self, content, content_type='text', width=None, height=None):
         if self.current_session_id is None:
-            logging.warning("No session selected, cannot save clipboard content")
+            logging.info("Please select a session to save clipboard content")
             return
             
         try:
@@ -1046,15 +1061,15 @@ class ClipboardManagerV2(QMainWindow):
                 ''', (self.current_session_id, content, content_type, width, height, now))
                 
                 self.db_connection.commit()
-                logging.debug(f"Clipboard entry saved for session {self.current_session_id} at {now}")
+                logging.debug(f"Saved {content_type} to session {self.current_session_id}")
                 
                 # Reload clipboard history to show new entry
                 self.loadClipboardHistory()
                 
         except sqlite3.Error as e:
-            logging.error(f"Database error while saving clipboard content: {e}")
+            logging.error(f"Database error: {e}")
         except Exception as e:
-            logging.error(f"Unexpected error while saving clipboard content: {e}")
+            logging.error(f"Error: {e}")
 
     def loadClipboardHistory(self):
         try:
@@ -1379,12 +1394,41 @@ class ClipboardManagerV2(QMainWindow):
         self.cleanup()
         event.accept()
 
+def adapt_datetime(dt):
+    """Convert datetime to UTC ISO format string."""
+    if dt is None:
+        return None
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f%z")
+
+def convert_datetime(val):
+    """Convert string to datetime object."""
+    if val is None:
+        return None
+    try:
+        if isinstance(val, bytes):
+            val = val.decode('utf-8')
+        if isinstance(val, str):
+            return datetime.strptime(val, "%Y-%m-%d %H:%M:%S.%f%z")
+        return val
+    except (ValueError, TypeError):
+        return None
+
+# Register the adapters and converters
+sqlite3.register_adapter(datetime, adapt_datetime)
+sqlite3.register_converter("timestamp", convert_datetime)
+
+def hash_password(password):
+    """Hash password using SHA-256."""
+    return hashlib.sha256(password.encode()).hexdigest()
+
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     
-    # Set application name and organization
-    app.setApplicationName("Clipboard Manager")
-    app.setOrganizationName("ClipboardManager")
+    # Set application name and organization before creating any windows
+    app.setApplicationName("Clipboard Manager V2")
+    app.setOrganizationName("ClipboardManagerV2")
+    app.setApplicationDisplayName("Clipboard Manager V2")  # This sets the name in title bar
+    app.setDesktopFileName("Clipboard Manager V2")  # This helps with dock name
     
     # Set the app icon for both window and dock
     icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'icons', 'clipboard_icon.png')
