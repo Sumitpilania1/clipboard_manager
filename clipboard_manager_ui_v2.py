@@ -499,9 +499,11 @@ class ClipboardThread(QThread):
 class ClipboardManagerV2(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Clipboard Manager V2")  # Set initial window title
         
-        # Set application icon
+        # Set window title
+        self.setWindowTitle("Clipboard Manager V2")
+        
+        # Set window icon
         icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'icons', 'clipboard_icon.png')
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
@@ -1422,28 +1424,47 @@ def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 if __name__ == '__main__':
+    import platform
+    if platform.system() == 'Darwin':  # macOS specific
+        try:
+            from Foundation import NSBundle
+            bundle = NSBundle.mainBundle()
+            if bundle:
+                info = bundle.localizedInfoDictionary() or bundle.infoDictionary()
+                if info:
+                    info['CFBundleName'] = 'Clipboard Manager V2'
+                    info['CFBundleDisplayName'] = 'Clipboard Manager V2'
+        except ImportError:
+            pass
+    
+    # Get the display name from environment variable or use default
+    display_name = os.environ.get('DISPLAY_NAME', 'Clipboard Manager V2')
+    
     app = QApplication(sys.argv)
     
-    # Set application name and organization before creating any windows
-    app.setApplicationName("Clipboard Manager V2")
+    # Set application name and organization
+    app.setApplicationName(display_name)
     app.setOrganizationName("ClipboardManagerV2")
-    app.setApplicationDisplayName("Clipboard Manager V2")  # This sets the name in title bar
-    app.setDesktopFileName("Clipboard Manager V2")  # This helps with dock name
+    app.setApplicationDisplayName(display_name)
     
-    # Set the app icon for both window and dock
+    # Set the app icon
     icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'icons', 'clipboard_icon.png')
     if os.path.exists(icon_path):
         app_icon = QIcon(icon_path)
         app.setWindowIcon(app_icon)
-        
-        # Set macOS dock icon
-        if hasattr(app, 'setApplicationIcon'):  # PyQt6
-            app.setApplicationIcon(app_icon)
-        else:  # PyQt5
-            app.setWindowIcon(app_icon)
-            
-        # Set macOS specific attributes
+    
+    # Set macOS specific properties
+    if platform.system() == 'Darwin':
         app.setAttribute(Qt.AA_DontShowIconsInMenus, False)
+        app.setProperty('APPLICATION_NAME', display_name)
+        
+        # Additional macOS specific settings
+        try:
+            from Foundation import NSProcessInfo
+            process_info = NSProcessInfo.processInfo()
+            process_info.setProcessName_(display_name)
+        except ImportError:
+            pass
     
     window = ClipboardManagerV2()
     window.show()

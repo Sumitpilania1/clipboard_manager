@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>English</string>
+	<key>CFBundleDisplayName</key>
+	<string>Clipboard Manager V2</string>
+	<key>CFBundleExecutable</key>
+	<string>Clipboard Manager V2</string>
+	<key>CFBundleIconFile</key>
+	<string>clipboard_icon.png</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.clipboardmanager.v2</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>Clipboard Manager V2</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0.0</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+	<key>CFBundleVersion</key>
+	<string>0.0.0</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.productivity</string>
+	<key>LSBackgroundOnly</key>
+	<false/>
+	<key>LSEnvironment</key>
+	<dict>
+		<key>LANG</key>
+		<string>en_US.UTF-8</string>
+		<key>PATH</key>
+		<string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+	</dict>
+	<key>LSHasLocalizedDisplayName</key>
+	<false/>
+	<key>LSMinimumSystemVersion</key>
+	<string>10.10</string>
+	<key>NSAppleScriptEnabled</key>
+	<false/>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright not specified</string>
+	<key>NSMainNibFile</key>
+	<string>MainMenu</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>NSRequiresAquaSystemAppearance</key>
+	<false/>
+	<key>PyMainFileNames</key>
+	<array>
+		<string>__boot__</string>
+	</array>
+	<key>PyOptions</key>
+	<dict>
+		<key>alias</key>
+		<true/>
+		<key>argv_emulation</key>
+		<false/>
+		<key>emulate_shell_environment</key>
+		<false/>
+		<key>no_chdir</key>
+		<false/>
+		<key>prefer_ppc</key>
+		<false/>
+		<key>site_packages</key>
+		<false/>
+		<key>use_faulthandler</key>
+		<false/>
+		<key>use_pythonpath</key>
+		<false/>
+		<key>verbose</key>
+		<false/>
+	</dict>
+	<key>PyResourcePackages</key>
+	<array/>
+	<key>PyRuntimeLocations</key>
+	<array>
+		<string>@executable_path/../Frameworks/libpython3.11.dylib</string>
+		<string>/opt/homebrew/Caskroom/miniconda/base/lib/libpython3.11.dylib</string>
+	</array>
+	<key>PythonInfoDict</key>
+	<dict>
+		<key>PythonExecutable</key>
+		<string>/opt/homebrew/Caskroom/miniconda/base/bin/python3</string>
+		<key>PythonLongVersion</key>
+		<string>3.11.7 | packaged by conda-forge | (main, Dec 23 2023, 14:38:07) [Clang 16.0.6 ]</string>
+		<key>PythonShortVersion</key>
+		<string>3.1</string>
+		<key>py2app</key>
+		<dict>
+			<key>alias</key>
+			<true/>
+			<key>template</key>
+			<string>app</string>
+			<key>version</key>
+			<string>0.28.8</string>
+		</dict>
+	</dict>
+</dict>
+</plist>

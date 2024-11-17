@@ -20,5 +20,16 @@
     <string>clipboard_icon.png</string>
     <key>CFBundleExecutable</key>
     <string>clipboard_manager_ui_v2.py</string>
+    <key>LSEnvironment</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.productivity</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
 </dict>
 </plist>
