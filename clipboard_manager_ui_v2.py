@@ -510,8 +510,15 @@ class ClipboardThread(QThread):
 class ClipboardManagerV2(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle('Clipboard Manager V2')
-        self.setGeometry(100, 100, 1200, 800)
+        self.setWindowTitle("Clipboard Manager V2")
+        
+        # Set application icon
+        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'icons', 'clipboard_icon.png')
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+            
+        # Initialize settings
+        self.settings = QSettings('ClipboardManagerV2', 'Sessions')
         
         # Initialize database with timestamp handling
         self.db_connection = sqlite3.connect(
@@ -525,6 +532,9 @@ class ClipboardManagerV2(QMainWindow):
         self.current_username = None
         self.clipboard_history = []
         self.db_lock = threading.Lock()
+        
+        # Initialize settings
+        self.settings = QSettings('Codeium', 'ClipboardManager')
         
         self.initDatabase()
         
@@ -597,7 +607,9 @@ class ClipboardManagerV2(QMainWindow):
         main_layout.setContentsMargins(20, 20, 20, 20)
 
         # Create status bar
-        self.statusBar()
+        self.statusBar().showMessage('')
+        self.session_label = QLabel()
+        self.statusBar().addPermanentWidget(self.session_label)
         
         # Session management section
         top_section = QWidget()
@@ -805,10 +817,15 @@ class ClipboardManagerV2(QMainWindow):
             return
         
         session_id = item.data(Qt.UserRole)
-        if session_id != self.current_session_id:
-            self.current_session_id = session_id
-            self.loadSession()
-            logging.debug(f"Session selected: {session_id}")
+        self.current_session_id = session_id
+        self.settings.setValue('last_session_id', session_id)
+        self.settings.sync()
+        self.loadSession()
+        
+        # Update session label in status bar
+        session_name = item.text().replace('★ ', '')  # Remove star if present
+        self.session_label.setText(f"Current Session: {session_name}")
+        logging.debug(f"Session selected: {session_id}")
 
     def createNewSession(self):
         new_name, ok = QInputDialog.getText(self, 'New Session', 'Enter session name:')
@@ -902,44 +919,75 @@ class ClipboardManagerV2(QMainWindow):
         self.loadClipboardHistory()
 
     def loadAvailableSessions(self):
+        """Load available sessions and set the last used or default session"""
         try:
-            cursor = self.db_connection.cursor()
-            cursor.execute('''
-                SELECT id, name, is_default 
-                FROM sessions 
-                WHERE user_id = ? AND is_deleted = 0 
-                ORDER BY is_default DESC, name
-            ''', (self.current_user_id,))
-            
-            sessions = cursor.fetchall()
+            with self.db_lock:
+                cursor = self.db_connection.cursor()
+                cursor.execute("""
+                    SELECT id, name, is_default 
+                    FROM sessions 
+                    WHERE is_deleted = 0 
+                    ORDER BY name
+                """)
+                sessions = cursor.fetchall()
+
+            # Clear and populate sessions combo box
             self.session_list.clear()
-            
             for session_id, name, is_default in sessions:
                 item = QListWidgetItem(f"{'★ ' if is_default else ''}{name}")
                 item.setData(Qt.UserRole, session_id)
                 self.session_list.addItem(item)
+
+            if not sessions:
+                return
+
+            # Get the last used session from QSettings
+            last_session_id = self.settings.value('last_session_id', type=int)
             
-            # Select default session or first available
-            if sessions:
-                default_session = next((s for s in sessions if s[2]), sessions[0])
-                if default_session:
-                    self.current_session_id = default_session[0]
-                    for i in range(self.session_list.count()):
-                        item = self.session_list.item(i)
-                        if item.data(Qt.UserRole) == self.current_session_id:
-                            self.session_list.setCurrentItem(item)
-                            break
-                    self.loadSession()
-                    logging.debug(f"Default session {self.current_session_id} loaded.")
-                else:
-                    logging.debug("No default session found.")
+            # Try to set the combo box to:
+            # 1. Last used session
+            # 2. Default session
+            # 3. First available session
             
-        except sqlite3.Error as e:
-            logging.error(f"Error loading sessions: {e}")
+            if last_session_id is not None:
+                # Find the index of the last used session
+                for i in range(self.session_list.count()):
+                    item = self.session_list.item(i)
+                    if item.data(Qt.UserRole) == last_session_id:
+                        self.session_list.setCurrentItem(item)
+                        return
+
+            # Try to find and set the default session
+            for i in range(self.session_list.count()):
+                item = self.session_list.item(i)
+                cursor.execute("SELECT is_default FROM sessions WHERE id = ?", (item.data(Qt.UserRole),))
+                result = cursor.fetchone()
+                if result and result[0]:
+                    self.session_list.setCurrentItem(item)
+                    return
+
+            # If no last used or default session, set to the first one
+            if self.session_list.count() > 0:
+                self.session_list.setCurrentItem(self.session_list.item(0))
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to load sessions: {str(e)}")
+
+    def onSessionSelected(self, item):
+        """Handle session selection and save the selection to settings"""
+        if item is None:
+            return
+        
+        session_id = item.data(Qt.UserRole)
+        self.current_session_id = session_id
+        self.settings.setValue('last_session_id', session_id)
+        self.settings.sync()
+        self.loadSession()
 
     def loadSession(self):
         current_item = self.session_list.currentItem()
         if current_item is None:
+            self.session_label.setText("No session selected")
             logging.debug("No session selected.")
             return
         session_id = current_item.data(Qt.UserRole)
