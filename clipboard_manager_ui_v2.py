@@ -666,7 +666,7 @@ class ClipboardManagerV2(QMainWindow):
                 background-color: #3498db;
                 color: white;
                 border: none;
-                padding: 8px 15px;
+                padding: 8px;
                 border-radius: 4px;
                 font-weight: 500;
                 font-size: 12px;
@@ -697,11 +697,25 @@ class ClipboardManagerV2(QMainWindow):
         buttons_layout.addWidget(self.set_default_btn)
         
         self.delete_session_btn = QPushButton('Delete Session')
-        self.delete_session_btn.setStyleSheet(button_style.replace('#3498db', '#e74c3c')
-                                                    .replace('#2980b9', '#c0392b')
-                                                    .replace('#2473a6', '#a93226'))
+        self.delete_session_btn.setStyleSheet(button_style.replace("#3498db", "#e74c3c")
+                                                    .replace("#2980b9", "#c0392b")
+                                                    .replace("#2473a6", "#a93226"))
         self.delete_session_btn.clicked.connect(self.deleteSession)
         buttons_layout.addWidget(self.delete_session_btn)
+
+        # Add a spacer to separate the quit button
+        spacer = QWidget()
+        spacer.setMinimumHeight(20)
+        buttons_layout.addWidget(spacer)
+        
+        # Add quit button
+        self.quit_btn = QPushButton('Quit')
+        quit_button_style = button_style.replace('#3498db', '#95a5a6')  \
+                                  .replace('#2980b9', '#7f8c8d')    \
+                                  .replace('#2473a6', '#6c7a7d')
+        self.quit_btn.setStyleSheet(quit_button_style)
+        self.quit_btn.clicked.connect(self.close)  # Changed from QApplication.instance().quit to self.close
+        buttons_layout.addWidget(self.quit_btn)
 
         # Add buttons widget to right side
         top_layout.addWidget(buttons_widget, stretch=1)
@@ -1244,6 +1258,22 @@ class ClipboardManagerV2(QMainWindow):
             self.copySelectedToClipboard()
         elif action == delete_action:
             self.deleteClipboardEntry()
+
+    def cleanup(self):
+        """Cleanup resources before quitting."""
+        # Stop the clipboard monitoring thread
+        if hasattr(self, 'clipboard_thread'):
+            self.clipboard_thread.stop()
+            self.clipboard_thread.wait()  # Wait for the thread to finish
+        
+        # Close database connection
+        if hasattr(self, 'db_connection'):
+            self.db_connection.close()
+
+    def closeEvent(self, event):
+        """Handle application closure."""
+        self.cleanup()
+        event.accept()
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
