@@ -1381,6 +1381,26 @@ class ClipboardManagerV2(QMainWindow):
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
+    
+    # Set application name and organization
+    app.setApplicationName("Clipboard Manager")
+    app.setOrganizationName("ClipboardManager")
+    
+    # Set the app icon for both window and dock
+    icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'icons', 'clipboard_icon.png')
+    if os.path.exists(icon_path):
+        app_icon = QIcon(icon_path)
+        app.setWindowIcon(app_icon)
+        
+        # Set macOS dock icon
+        if hasattr(app, 'setApplicationIcon'):  # PyQt6
+            app.setApplicationIcon(app_icon)
+        else:  # PyQt5
+            app.setWindowIcon(app_icon)
+            
+        # Set macOS specific attributes
+        app.setAttribute(Qt.AA_DontShowIconsInMenus, False)
+    
     window = ClipboardManagerV2()
     window.show()
     sys.exit(app.exec_())
