@@ -580,57 +580,63 @@ class ClipboardManagerV2(QMainWindow):
         main_layout.setSpacing(10)
         main_layout.setContentsMargins(20, 20, 20, 20)
 
-        # Create top section with horizontal layout
-        top_section = QWidget()
-        top_layout = QHBoxLayout(top_section)
-        top_layout.setSpacing(20)
-
-        # Left side - Sessions section
-        sessions_widget = QWidget()
-        sessions_layout = QVBoxLayout(sessions_widget)
-        sessions_layout.setSpacing(10)
+        # Create status bar
+        self.statusBar()
         
-        # Sessions header with styling
-        sessions_header = QLabel('Available Sessions')
-        sessions_header.setStyleSheet("""
+        # Top section with session management
+        top_section = QWidget()
+        top_layout = QHBoxLayout()
+        top_section.setLayout(top_layout)
+        
+        # Left side - Session list
+        session_widget = QWidget()
+        session_layout = QVBoxLayout()
+        session_widget.setLayout(session_layout)
+        
+        # Session list label
+        session_label = QLabel("Sessions")
+        session_label.setStyleSheet("""
             QLabel {
-                font-size: 16px;
+                font-size: 14px;
                 font-weight: bold;
                 color: #2c3e50;
                 padding: 5px;
             }
         """)
-        sessions_layout.addWidget(sessions_header)
+        session_layout.addWidget(session_label)
         
-        # Session list with reduced height
+        # Session list
         self.session_list = QListWidget()
-        self.session_list.setMaximumHeight(150)  # Limit height
+        self.session_list.setMinimumWidth(200)
+        self.session_list.itemClicked.connect(self.loadSession)
         self.session_list.setStyleSheet("""
             QListWidget {
                 border: 1px solid #bdc3c7;
-                border-radius: 5px;
-                background-color: white;
+                border-radius: 4px;
                 padding: 5px;
+                background-color: white;
             }
             QListWidget::item {
-                padding: 5px;
-                border-bottom: 1px solid #ecf0f1;
-            }
-            QListWidget::item:hover {
-                background-color: #ecf0f1;
+                padding: 8px;
+                border-radius: 4px;
+                margin: 2px;
             }
             QListWidget::item:selected {
                 background-color: #3498db;
                 color: white;
             }
+            QListWidget::item:hover {
+                background-color: #edf2f7;
+            }
+            QListWidget::item[selected="true"] {
+                background-color: #3498db;
+                color: white;
+            }
         """)
-        sessions_layout.addWidget(self.session_list)
+        session_layout.addWidget(self.session_list)
         
-        # Connect session selection change
-        self.session_list.itemSelectionChanged.connect(self.loadSession)
-        
-        # Add sessions widget to left side of top section
-        top_layout.addWidget(sessions_widget, stretch=2)
+        # Add session widget to top layout
+        top_layout.addWidget(session_widget, stretch=2)
 
         # Right side - Session management buttons
         buttons_widget = QWidget()
@@ -757,12 +763,6 @@ class ClipboardManagerV2(QMainWindow):
         self.history_display.setContextMenuPolicy(Qt.CustomContextMenu)
         self.history_display.customContextMenuRequested.connect(self.showContextMenu)
         
-        # Create status bar
-        self.statusBar()
-        
-        # Set initial state
-        self.loadAvailableSessions()
-
     def historyKeyPressEvent(self, event):
         if event.key() == Qt.Key_Return or event.key() == Qt.Key_Enter:
             self.previewSelectedItem()
@@ -939,18 +939,77 @@ class ClipboardManagerV2(QMainWindow):
             self.session_list.clear()
             
             for session_id, name, is_default in sessions:
-                item = QListWidgetItem(f"{'★ ' if is_default else ''}{name}")
-                item.setData(Qt.UserRole, session_id)
+                item = QListWidgetItem()
+                # Create a custom widget for the session item
+                session_widget = QWidget()
+                layout = QHBoxLayout()
+                layout.setContentsMargins(5, 2, 5, 2)
+                
+                # Session name label
+                name_label = QLabel(name)
+                name_label.setStyleSheet("color: #2c3e50; font-size: 12px;")
+                layout.addWidget(name_label)
+                
+                # Default session star
+                if is_default:
+                    star_label = QLabel("★")
+                    star_label.setStyleSheet("color: #f1c40f; font-size: 14px;")  # Golden color
+                    layout.addWidget(star_label)
+                
+                # Add stretch to push everything to the left
+                layout.addStretch()
+                
+                session_widget.setLayout(layout)
+                item.setSizeHint(session_widget.sizeHint())
+                
                 self.session_list.addItem(item)
+                self.session_list.setItemWidget(item, session_widget)
+                item.setData(Qt.UserRole, session_id)
+                
+                # If this is the current session, select it
+                if session_id == self.current_session_id:
+                    self.session_list.setCurrentItem(item)
             
             # Load default session or first available
-            default_session = next((s for s in sessions if s[2]), sessions[0] if sessions else None)
-            if default_session:
-                self.current_session_id = default_session[0]
-                self.loadSession()
+            if not self.current_session_id:
+                default_session = next((s for s in sessions if s[2]), sessions[0] if sessions else None)
+                if default_session:
+                    self.current_session_id = default_session[0]
+                    # Find and select the default session item
+                    for i in range(self.session_list.count()):
+                        item = self.session_list.item(i)
+                        if item.data(Qt.UserRole) == self.current_session_id:
+                            self.session_list.setCurrentItem(item)
+                            break
+                    self.loadSession()
                 
         except sqlite3.Error as e:
             logging.error(f"Error loading sessions: {e}")
+
+    def loadSession(self):
+        current_item = self.session_list.currentItem()
+        if current_item is None:
+            logging.debug("No session selected.")
+            return
+            
+        session_id = current_item.data(Qt.UserRole)
+        if session_id == self.current_session_id:
+            return  # Already on this session
+            
+        logging.debug(f"Loading session: {session_id}")
+        self.current_session_id = session_id
+        
+        # Update window title with session name
+        session_widget = self.session_list.itemWidget(current_item)
+        session_name = session_widget.layout().itemAt(0).widget().text()
+        self.setWindowTitle(f'Clipboard Manager V2 - {self.current_username} - {session_name}')
+        
+        # Load clipboard history for this session
+        self.loadClipboardHistory()
+        logging.debug(f"Loaded session {session_id}")
+        
+        # Update status bar
+        self.statusBar().showMessage(f'Switched to session: {session_name}', 2000)
 
     def startClipboardMonitor(self):
         self.clipboard_thread = ClipboardThread(self)
@@ -1010,18 +1069,6 @@ class ClipboardManagerV2(QMainWindow):
             logging.error(f"Database error while saving clipboard content: {e}")
         except Exception as e:
             logging.error(f"Unexpected error while saving clipboard content: {e}")
-
-    def loadSession(self):
-        current_item = self.session_list.currentItem()
-        if current_item is None:
-            logging.debug("No session selected.")
-            return
-        session_id = current_item.data(Qt.UserRole)
-        logging.debug(f"Loading session: {session_id}")
-        self.current_session_id = session_id
-        self.loadClipboardHistory()
-        self.setWindowTitle(f'Clipboard Manager - {current_item.text().replace("★ ", "")}')
-        logging.debug(f"Loaded session from {session_id}.")
 
     def loadClipboardHistory(self):
         try:
